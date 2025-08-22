@@ -28,13 +28,15 @@ def mlem_list_mode(t_list, img, s_map, osem_subset_num, t_divide_num):
     return img
 
 
-def mlem_joint_mode(sysmat_list, proj_list, t_list, img, s_map, osem_subset_num, t_divide_num):
+def mlem_joint_mode(sysmat_list, proj_list, t_list, img, s_map, osem_subset_num, t_divide_num, alpha):
     # joint mode mlem algorithm
     for i in range(osem_subset_num):
-        weight = 0 * img
+        weight_Compton = 0 * img
+        weight_single = torch.matmul(sysmat_list[i].transpose(0, 1), proj_list[i] / torch.matmul(sysmat_list[i], img))
         for j in range(t_divide_num):
-            weight_tmp = torch.nan_to_num(t_list[i][j].transpose(0, 1) / (torch.matmul(t_list[i][j], img).sum(1)), nan=0, posinf=0, neginf=0).sum(1, keepdim=True) + torch.matmul(sysmat_list[i].transpose(0, 1), proj_list[i] / torch.matmul(sysmat_list[i], img))
-            weight = weight + weight_tmp
+            weight_Compton_tmp = torch.nan_to_num((2 - alpha) * t_list[i][j].transpose(0, 1) / (torch.matmul(t_list[i][j], img).sum(1)), nan=0, posinf=0, neginf=0).sum(1, keepdim=True)
+            weight_Compton = weight_Compton + weight_Compton_tmp
+        weight = (2 - alpha) * weight_Compton + alpha * weight_single
         img = img * weight / s_map
 
     return img
@@ -149,7 +151,7 @@ def run_recon_mlem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_pat
     print("JSCC-SD MLEM starts")
     id_save = 0
     for id_iter_jsccsd in range(iter_arg.jsccsd):
-        img_jsccsd = mlem_joint_mode(sysmat_list, proj_list, t_list, img_jsccsd, alpha * s_map_arg.s + (2 - alpha) * s_map_arg.d, iter_arg.osem_subset_num, iter_arg.t_divide_num)
+        img_jsccsd = mlem_joint_mode(sysmat_list, proj_list, t_list, img_jsccsd, alpha * s_map_arg.s + (2 - alpha) * s_map_arg.d, iter_arg.osem_subset_num, iter_arg.t_divide_num, alpha)
         if (id_iter_jsccsd + 1) % iter_arg.save_iter_step == 0:
             img_jsccsd_iter[id_save, :] = torch.squeeze(img_jsccsd).cpu()
             id_save += 1

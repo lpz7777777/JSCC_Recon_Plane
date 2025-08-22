@@ -41,22 +41,22 @@ def get_coor_plane(pixel_num_x, pixel_num_y, pixel_l_x, pixel_l_y, fov_z):
 if __name__ == '__main__':
     with torch.no_grad():
         # file path
-        data_file_path = "ContrastPhantom_140_1e9_1"
-        factor_file_path = "100_100_5_5_662keV"
+        data_file_path = "ContrastPhantom_70_662keV_5e9"
+        factor_file_path = "100_100_3_3_662keV"
 
         # set system factors
-        e0 = 0.662  # energy of incident photons
+        e0 =0.662  # energy of incident photons
         ene_resolution_662keV = 0.1  # energy resolution at 662keV
         ene_resolution = ene_resolution_662keV * (0.662 / e0) ** 0.5
-        ene_threshold_max = 0.477
-        ene_threshold_min = 0.050
+        ene_threshold_max = 2 * e0 ** 2 / (0.511 + 2 * e0) - 0.001
+        ene_threshold_min = 0.05
 
         # fov factor
         fov_z = -146.5
         pixel_num_x = 100
         pixel_num_y = 100
-        pixel_l_x = 5  # unit: mm
-        pixel_l_y = 5
+        pixel_l_x = 3  # unit: mm
+        pixel_l_y = 3
         pixel_num = pixel_num_x * pixel_num_y
 
         # intrinsic spatial resolution of scintillators
@@ -260,7 +260,7 @@ if __name__ == '__main__':
                 s_map_arg.s.cpu().numpy().astype('float32').tofile(file)
         torch.cuda.empty_cache()
 
-        save_path = "./Figure/" + data_file_path + "_" + str(ds) + "_Delta" + str(delta_r1) + "_ER" + str(ene_resolution_662keV) + "_OSEM" + str(iter_arg.osem_subset_num) + "_ITER" + str(iter_arg.jsccsd) + "_SDU" + str(single_event_count) + "_DDU" + str(compton_event_count) + "/"
+        save_path = "./Figure/" + data_file_path + "_" + str(ds) + "_Delta" + str(delta_r1) + "_Alpha" + str(alpha) + "_ER" + str(ene_resolution_662keV) + "_OSEM" + str(iter_arg.osem_subset_num) + "_ITER" + str(iter_arg.jsccsd) + "_SDU" + str(single_event_count) + "_DDU" + str(compton_event_count) + "/"
 
         run_recon_mlem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_path, device)
 
