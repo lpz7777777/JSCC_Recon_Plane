@@ -3,9 +3,7 @@ import numpy as np
 from process_list_plane import get_compton_backproj_list
 from recon_mlem_plane import run_recon_mlem
 import time
-from scipy.io import loadmat
 import argparse
-import pickle
 import sys
 import os
 import shutil
@@ -41,11 +39,11 @@ def get_coor_plane(pixel_num_x, pixel_num_y, pixel_l_x, pixel_l_y, fov_z):
 if __name__ == '__main__':
     with torch.no_grad():
         # file path
-        data_file_path = "ContrastPhantom_70_662keV_5e9"
-        factor_file_path = "100_100_3_3_662keV"
+        data_file_path = "ContrastPhantom_70_218keV_1e9"
+        factor_file_path = "100_100_3_3_218keV"
 
         # set system factors
-        e0 =0.662  # energy of incident photons
+        e0 =0.218  # energy of incident photons
         ene_resolution_662keV = 0.1  # energy resolution at 662keV
         ene_resolution = ene_resolution_662keV * (0.662 / e0) ** 0.5
         ene_threshold_max = 2 * e0 ** 2 / (0.511 + 2 * e0) - 0.001
@@ -60,8 +58,8 @@ if __name__ == '__main__':
         pixel_num = pixel_num_x * pixel_num_y
 
         # intrinsic spatial resolution of scintillators
-        delta_r1 = 1.25
-        delta_r2 = 1.25
+        delta_r1 = 1.5
+        delta_r2 = delta_r1
         alpha = 1
 
         # divide list-mode data into subsets to prevent GPU overload
