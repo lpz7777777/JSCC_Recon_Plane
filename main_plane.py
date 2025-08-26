@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from process_list_plane import get_compton_backproj_list
+from process_list_plane import get_coor_plane, get_compton_backproj_list_single
 from recon_mlem_plane import run_recon_mlem
 import time
 import argparse
@@ -20,21 +20,6 @@ class Tee:
     def flush(self):
         for s in self.streams:
             s.flush()
-
-
-def get_coor_plane(pixel_num_x, pixel_num_y, pixel_l_x, pixel_l_y, fov_z):
-    # get the coordinate of fov
-    fov_coor = torch.ones([pixel_num_x, pixel_num_y, 3])
-    min_x = -(pixel_num_x / 2 - 0.5) * pixel_l_x
-    max_x = (pixel_num_x / 2 - 0.5) * pixel_l_x
-    min_y = -(pixel_num_y / 2 - 0.5) * pixel_l_y
-    max_y = (pixel_num_y / 2 - 0.5) * pixel_l_y
-    fov_coor[:, :, 0] *= torch.linspace(min_x, max_x, pixel_num_x).reshape([1, -1])
-    fov_coor[:, :, 1] *= torch.linspace(min_y, max_y, pixel_num_y).reshape([-1, 1])
-    fov_coor[:, :, 2] = fov_z
-    fov_coor = fov_coor.reshape(-1, 3)
-    return fov_coor
-
 
 if __name__ == '__main__':
     with torch.no_grad():
@@ -162,8 +147,9 @@ if __name__ == '__main__':
             list_origin_chunks = torch.chunk(list_origin, num_workers, dim=0)
 
             for list_origin_tmp_chunk in list_origin_chunks:
-                t_chunk, t_compton_chunk, t_single_chunk = get_compton_backproj_list(list_origin_tmp_chunk.to(device), delta_r1, delta_r2, e0, ene_resolution,
-                                                            ene_threshold_max, ene_threshold_min, detector, coor_plane, sysmat, device)
+                t_chunk, t_compton_chunk, t_single_chunk = get_compton_backproj_list_single(sysmat, detector, coor_plane,
+                                                            list_origin_tmp_chunk.to(device), delta_r1, delta_r2, e0, ene_resolution,
+                                                            ene_threshold_max, ene_threshold_min, device)
                 t.append(t_chunk)
                 t_compton.append(t_compton_chunk)
                 t_single.append(t_single_chunk)
@@ -214,8 +200,8 @@ if __name__ == '__main__':
             list_origin_chunks = torch.chunk(list_origin, num_workers, dim=0)
 
             for list_origin_tmp_chunk in list_origin_chunks:
-                t_chunk, _, _ = get_compton_backproj_list(list_origin_tmp_chunk.to(device), delta_r1, delta_r2, e0, ene_resolution,
-                                                            ene_threshold_max, ene_threshold_min, detector, coor_plane, sysmat, device)
+                t_chunk, _, _ = get_compton_backproj_list_single(list_origin_tmp_chunk.to(device), delta_r1, delta_r2, e0, ene_resolution,
+                                                                ene_threshold_max, ene_threshold_min, detector, coor_plane, sysmat, device)
                 t.append(t_chunk)
                 torch.cuda.empty_cache()
                 print("Chunk Num", str(len(t)), "ends, time used:", time.time() - time_start, "s")

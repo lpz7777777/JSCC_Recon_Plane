@@ -1,6 +1,19 @@
 import torch
+import time
 
-def get_compton_backproj_list(list_origin, delta_r1, delta_r2, e0, ene_resolution, ene_threshold_max, ene_threshold_min, detector, coor, sysmat, device):
+def get_coor_plane(pixel_num_x, pixel_num_y, pixel_l_x, pixel_l_y, fov_z):
+    fov_coor = torch.ones([pixel_num_x, pixel_num_y, 3])
+    min_x = -(pixel_num_x / 2 - 0.5) * pixel_l_x
+    max_x = (pixel_num_x / 2 - 0.5) * pixel_l_x
+    min_y = -(pixel_num_y / 2 - 0.5) * pixel_l_y
+    max_y = (pixel_num_y / 2 - 0.5) * pixel_l_y
+    fov_coor[:, :, 0] *= torch.linspace(min_x, max_x, pixel_num_x).reshape([1, -1])
+    fov_coor[:, :, 1] *= torch.linspace(min_y, max_y, pixel_num_y).reshape([-1, 1])
+    fov_coor[:, :, 2] = fov_z
+    fov_coor = fov_coor.reshape(-1, 3)
+    return fov_coor
+
+def get_compton_backproj_list_single(sysmat, detector, coor, list_origin, delta_r1, delta_r2, e0, ene_resolution, ene_threshold_max, ene_threshold_min, device):
     cpnum1 = list_origin[:, 0].int()
     cpnum2 = list_origin[:, 2].int()
     e1 = list_origin[:, 1]
@@ -78,3 +91,131 @@ def get_compton_backproj_list(list_origin, delta_r1, delta_r2, e0, ene_resolutio
     t_single = (t_single / t_single.sum(dim=1, keepdim=True)).cpu()
 
     return t, t_compton, t_single
+
+
+def get_compton_backproj_list(rank, world_size, sysmat, detector, coor_plane, list_origin_chunk,
+                            delta_r1, delta_r2, e0, ene_resolution, ene_threshold_max, ene_threshold_min,
+                            result_dict, num_workers, start_time, flag_save_t):
+    """Worker function for processing list data on specific GPU"""
+    # Set device for this worker
+    torch.cuda.set_device(rank)
+    device = torch.device(f"cuda:{rank}")
+
+    # Move data to assigned GPU
+    sysmat = sysmat.to(device)
+    detector = detector.to(device)
+    coor_plane = coor_plane.to(device)
+
+    # Process chunk in smaller sub-chunks to prevent memory overload
+    sub_chunks = torch.chunk(list_origin_chunk, num_workers, dim=0)
+
+    if flag_save_t == 0:
+        # not save t
+        t_parts = []
+
+        for sub_chunk in sub_chunks:
+            t_chunk, _, _ = get_compton_backproj_list_single(
+                sysmat, detector, coor_plane, sub_chunk.to(device), delta_r1, delta_r2, e0, ene_resolution,
+                ene_threshold_max, ene_threshold_min, device
+            )
+            t_parts.append(t_chunk)
+            torch.cuda.empty_cache()
+            print(f"Rank {rank}: Processed sub-chunk, time used: {time.time() - start_time:.2f}s")
+
+        # Combine all sub-chunks
+        t_combined = torch.cat(t_parts, dim=0)
+
+        # Store result in shared dictionary
+        result_dict[rank] = t_combined.cpu()
+
+    else:
+        # save t
+        t_parts = []
+        t_compton_parts = []
+        t_single_parts = []
+
+        for sub_chunk in sub_chunks:
+            t_chunk, t_compton_chunk, t_single_chunk = get_compton_backproj_list_single(
+                sysmat, detector, coor_plane, sub_chunk.to(device), delta_r1, delta_r2, e0, ene_resolution,
+                ene_threshold_max, ene_threshold_min, device
+            )
+            t_parts.append(t_chunk)
+            t_compton_parts.append(t_compton_chunk)
+            t_single_parts.append(t_single_chunk)
+            torch.cuda.empty_cache()
+            print(f"Rank {rank}: Processed sub-chunk, time used: {time.time() - start_time:.2f}s")
+
+        # Combine all sub-chunks
+        t_combined = torch.cat(t_parts, dim=0)
+        t_compton_combined = torch.cat(t_compton_parts, dim=0)
+        t_single_combined = torch.cat(t_single_parts, dim=0)
+
+        # Store result in shared dictionary
+        result_dict[rank] = t_combined.cpu()
+        result_dict[world_size + rank] = t_compton_combined.cpu()
+        result_dict[2 * world_size + rank] = t_single_combined.cpu()
+
+    print(f"Rank {rank} completed processing and stored result")
+
+
+def get_compton_backproj_list_dist(local_rank, world_size, sysmat, detector, coor_plane, list_origin_chunk,
+                            delta_r1, delta_r2, e0, ene_resolution, ene_threshold_max, ene_threshold_min,
+                            result_dict, num_workers, start_time, flag_save_t):
+    """Worker function for processing list data on specific GPU"""
+    # Set device for this worker
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+
+    # Move data to assigned GPU
+    sysmat = sysmat.to(device)
+    detector = detector.to(device)
+    coor_plane = coor_plane.to(device)
+
+    # Process chunk in smaller sub-chunks to prevent memory overload
+    sub_chunks = torch.chunk(list_origin_chunk, num_workers, dim=0)
+
+    if flag_save_t == 0:
+        # not save t
+        t_parts = []
+
+        for sub_chunk in sub_chunks:
+            t_chunk, _, _ = get_compton_backproj_list_single(
+                sysmat, detector, coor_plane, sub_chunk.to(device), delta_r1, delta_r2, e0, ene_resolution,
+                ene_threshold_max, ene_threshold_min, device
+            )
+            t_parts.append(t_chunk)
+            torch.cuda.empty_cache()
+            print(f"Rank {local_rank}: Processed sub-chunk, time used: {time.time() - start_time:.2f}s")
+
+        # Combine all sub-chunks
+        t_combined = torch.cat(t_parts, dim=0)
+
+        # Store result in shared dictionary
+        print(f"Local Rank {local_rank} completed processing and stored result")
+        return t_combined.cpu()
+
+    else:
+        # save t
+        t_parts = []
+        t_compton_parts = []
+        t_single_parts = []
+
+        for sub_chunk in sub_chunks:
+            t_chunk, t_compton_chunk, t_single_chunk = get_compton_backproj_list_single(
+                sysmat, detector, coor_plane, sub_chunk.to(device), delta_r1, delta_r2, e0, ene_resolution,
+                ene_threshold_max, ene_threshold_min, device
+            )
+            t_parts.append(t_chunk)
+            t_compton_parts.append(t_compton_chunk)
+            t_single_parts.append(t_single_chunk)
+            torch.cuda.empty_cache()
+            print(f"Rank {local_rank}: Processed sub-chunk, time used: {time.time() - start_time:.2f}s")
+
+        # Combine all sub-chunks
+        t_combined = torch.cat(t_parts, dim=0)
+        t_compton_combined = torch.cat(t_compton_parts, dim=0)
+        t_single_combined = torch.cat(t_single_parts, dim=0)
+
+        # Store result in shared dictionary
+        print(f"Local Rank {local_rank} completed processing and stored result")
+        return t_combined.cpu(), t_compton_combined.cpu(), t_single_combined.cpu()
