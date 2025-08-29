@@ -10,11 +10,7 @@ def get_weight_single(sysmat_list_tmp, proj_list_tmp, img_tmp):
 
 def get_weight_compton(t_List_tmp, img_tmp):
     # get the weight of Compton events
-    return torch.nan_to_num(t_List_tmp.transpose(0, 1) / (torch.matmul(t_List_tmp, img_tmp).sum(1)), nan=0, posinf=0, neginf=0).sum(1, keepdim=True).to("cuda:0")
-
-def get_weight_compton_mp(q, t_List_tmp, img_tmp):
-    # for multiprocessing
-    q.put(get_weight_compton(t_List_tmp, img_tmp))
+    return torch.nan_to_num(t_List_tmp.transpose(0, 1) / (torch.matmul(t_List_tmp, img_tmp).sum(1)), nan=0, posinf=0, neginf=0).sum(1, keepdim=True)
 
 
 def mlem_bin_mode(sysmat_list, proj_list, img, s_map, osem_subset_num):
@@ -29,38 +25,23 @@ def mlem_bin_mode(sysmat_list, proj_list, img, s_map, osem_subset_num):
 def mlem_list_mode(t_list, img, s_map, osem_subset_num, t_divide_num):
     # list mode mlem algorithm (No MultiProcess)
     for i in range(osem_subset_num):
-        weight = 0 * img
+        weight_compton = 0 * img
         for j in range(t_divide_num):
             weight_tmp = get_weight_compton(t_list[i][j], img)
-            weight = weight + weight_tmp
-        img = img * weight / s_map
+            weight_compton = weight_compton + weight_tmp
+        img = img * weight_compton / s_map
 
     return img
 
 
-def mlem_list_mode_mp(t_list, img, s_map, osem_subset_num, t_divide_num):
+def mlem_list_mode_mp(t_list, iter_num, osem_subset_num, rank, img_queue, weight_queue):
     # list mode mlem algorithm (With MultiProcess)
-    # prepare for mp
-    q = mp.Queue()
-    processes = []
-
-    for i in range(osem_subset_num):
-        weight = 0 * img
-        for j in range(t_divide_num):
-            p = mp.Process(target=get_weight_compton_mp, args=(q, t_list[i][j], img.to(f"cuda:{j}", non_blocking=True)))
-            p.start()
-            processes.append(p)
-
-        for _ in range(t_divide_num):
-            weight_tmp = q.get()
-            weight = weight + weight_tmp
-
-        for p in processes:
-            p.join()
-
-        img = img * weight / s_map
-
-    return img
+    print(f"List Mode MLEM Rank{rank} Starts")
+    for id_iter in range(iter_num):
+        for i in range(osem_subset_num):
+            img = img_queue.get()
+            weight = get_weight_compton(t_list[i], img.to(f"cuda:{rank}")).to("cuda:0")
+            weight_queue.put(weight)
 
 
 def mlem_joint_mode(sysmat_list, proj_list, t_list, img, s_map, osem_subset_num, t_divide_num, alpha):
@@ -72,34 +53,6 @@ def mlem_joint_mode(sysmat_list, proj_list, t_list, img, s_map, osem_subset_num,
         for j in range(t_divide_num):
             weight_compton_tmp = get_weight_compton(t_list[i][j], img)
             weight_compton = weight_compton + weight_compton_tmp
-        weight = (2 - alpha) * weight_compton + alpha * weight_single
-        img = img * weight / s_map
-
-    return img
-
-
-def mlem_joint_mode_mp(sysmat_list, proj_list, t_list, img, s_map, osem_subset_num, t_divide_num, alpha):
-    # joint mode mlem algorithm (With MultiProcess)
-    # prepare for mp
-    q = mp.Queue()
-    processes = []
-
-    for i in range(osem_subset_num):
-        weight_compton = 0 * img
-        weight_single = get_weight_single(sysmat_list[i], proj_list[i], img)
-
-        for j in range(t_divide_num):
-            p = mp.Process(target=get_weight_compton_mp, args=(q, t_list[i][j], img.to(f"cuda:{j}", non_blocking=True)))
-            p.start()
-            processes.append(p)
-
-        for _ in range(t_divide_num):
-            weight_compton_tmp = q.get()
-            weight_compton = weight_compton + weight_compton_tmp
-
-        for p in processes:
-            p.join()
-
         weight = (2 - alpha) * weight_compton + alpha * weight_single
         img = img * weight / s_map
 
@@ -154,11 +107,9 @@ def run_recon_mlem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_pat
             t_list[i] = list(torch.chunk(t_list[i], iter_arg.t_divide_num, dim=0))
 
     else:
-        t_list = list(torch.chunk(t, iter_arg.osem_subset_num, dim=0))
-        for i in range(0, iter_arg.osem_subset_num):
-            t_list[i] = list(torch.chunk(t_list[i], iter_arg.t_divide_num, dim=0))
-            for j in range(0, iter_arg.t_divide_num):
-                t_list[i][j] = t_list[i][j].to(f"cuda:{j}", non_blocking=True)
+        t_list = list(torch.chunk(t, iter_arg.t_divide_num, dim=0))
+        for i in range(0, iter_arg.t_divide_num):
+            t_list[i] = list(torch.chunk(t_list[i].to(f"cuda:{i}"), iter_arg.osem_subset_num, dim=0))
     
     del t
 
@@ -208,7 +159,7 @@ def run_recon_mlem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_pat
     torch.cuda.empty_cache()
 
     if num_gpus == 1:
-        # jscc-d
+        # ========== jscc-d ==========
         print("JSCC-D MLEM starts")
         id_save = 0
         for id_iter_jsccd in range(iter_arg.jsccd):
@@ -221,7 +172,7 @@ def run_recon_mlem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_pat
         print("JSCC-D MLEM ends, time used:", time.time() - time_start)
         torch.cuda.empty_cache()
 
-        # jscc-sd
+        # ========== jscc-sd ==========
         print("JSCC-SD MLEM starts")
         id_save = 0
         for id_iter_jsccsd in range(iter_arg.jsccsd):
@@ -235,28 +186,76 @@ def run_recon_mlem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_pat
         torch.cuda.empty_cache()
 
     else:
-        # jscc-d
+        # prepare queue for mp
+        img_queue = mp.Queue()
+        weight_queue = mp.Queue()
+
+        # ========== jscc-d ==========
         print("JSCC-D MLEM starts (With Multiprocessing)")
         id_save = 0
+        processes = []
+
+        for j in range(iter_arg.t_divide_num):
+            p = mp.Process(target=mlem_list_mode_mp, args=(t_list[j], iter_arg.jsccd, iter_arg.osem_subset_num, j, img_queue, weight_queue))
+            p.start()
+            processes.append(p)
+
         for id_iter_jsccd in range(iter_arg.jsccd):
-            img_jsccd = mlem_list_mode_mp(t_list, img_jsccd, s_map_arg.d, iter_arg.osem_subset_num, iter_arg.t_divide_num)
+            for i in range(iter_arg.osem_subset_num):
+                weight_compton = 0 * img_jsccd
+                for j in range(iter_arg.t_divide_num):
+                    img_queue.put(img_jsccd)
+                for j in range(iter_arg.t_divide_num):
+                    weight_compton_tmp = weight_queue.get()
+                    weight_compton = weight_compton + weight_compton_tmp
+
+                img_jsccd = img_jsccd * weight_compton / s_map_arg.d
+
             if (id_iter_jsccd + 1) % iter_arg.save_iter_step == 0:
                 img_jsccd_iter[id_save, :] = torch.squeeze(img_jsccd).cpu()
                 id_save += 1
                 print("Iteration ", str(id_iter_jsccd + 1), " ends, time used:", time.time() - time_start, "s")
 
+        for p in processes:
+            p.join()
+        processes.clear()
+
         print("JSCC-D MLEM ends, time used:", time.time() - time_start)
         torch.cuda.empty_cache()
 
-        # jscc-sd
+        # ========== jscc-sd ==========
         print("JSCC-SD MLEM starts (With Multiprocessing)")
         id_save = 0
+        processes = []
+        s_map_arg.j = alpha * s_map_arg.s + (2 - alpha) * s_map_arg.d
+
+        for j in range(iter_arg.t_divide_num):
+            p = mp.Process(target=mlem_list_mode_mp, args=(t_list[j], iter_arg.jsccsd, iter_arg.osem_subset_num, j, img_queue, weight_queue))
+            p.start()
+            processes.append(p)
+
         for id_iter_jsccsd in range(iter_arg.jsccsd):
-            img_jsccsd = mlem_joint_mode_mp(sysmat_list, proj_list, t_list, img_jsccsd, alpha * s_map_arg.s + (2 - alpha) * s_map_arg.d, iter_arg.osem_subset_num, iter_arg.t_divide_num, alpha)
+            for i in range(iter_arg.osem_subset_num):
+                weight_compton = 0 * img_jsccsd
+                for j in range(iter_arg.t_divide_num):
+                    img_queue.put(img_jsccsd)
+                for j in range(iter_arg.t_divide_num):
+                    weight_compton_tmp = weight_queue.get()
+                    weight_compton = weight_compton + weight_compton_tmp
+
+                weight_single = get_weight_single(sysmat_list[i], proj_list[i], img_jsccsd)
+                weight = alpha * weight_single + (2 - alpha) * weight_compton
+
+                img_jsccsd = img_jsccsd * weight / s_map_arg.j
+
             if (id_iter_jsccsd + 1) % iter_arg.save_iter_step == 0:
                 img_jsccsd_iter[id_save, :] = torch.squeeze(img_jsccsd).cpu()
                 id_save += 1
                 print("Iteration ", str(id_iter_jsccsd + 1), " ends, time used:", time.time() - time_start, "s")
+
+        for p in processes:
+            p.join()
+        processes.clear()
 
         print("JSCC-SD MLEM ends, time used:", time.time() - time_start)
         torch.cuda.empty_cache()

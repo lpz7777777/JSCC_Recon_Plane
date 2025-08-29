@@ -35,7 +35,7 @@ def main():
     args = parser.parse_args()
 
     # File paths
-    data_file_path = "ContrastPhantom_100_440keV_1e10"
+    data_file_path = "ContrastPhantom_70_440keV_5e9"
     factor_file_path = "100_100_3_3_440keV"
 
     # System factors
@@ -60,9 +60,9 @@ def main():
 
     # Reconstruction factors
     iter_arg = argparse.ArgumentParser().parse_args()
-    iter_arg.sc = 2000
-    iter_arg.jsccd = 1000
-    iter_arg.jsccsd = 2000
+    iter_arg.sc = 200
+    iter_arg.jsccd = 100
+    iter_arg.jsccsd = 200
     iter_arg.save_iter_step = 10
     iter_arg.osem_subset_num = 8
     iter_arg.t_divide_num = 8
@@ -70,8 +70,8 @@ def main():
     iter_arg.num_workers = 20  # Sub-chunks per GPU, to avoid overload of GPUs
 
     # Downsampling flags
-    flag_ds = 0
-    ds = 1
+    flag_ds = 1
+    ds = 0.1
     flag_save_t = 0
     flag_save_s = 0
 
