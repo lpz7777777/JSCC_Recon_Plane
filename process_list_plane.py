@@ -30,7 +30,7 @@ def get_compton_backproj_list_single(sysmat, detector, coor, list_origin, delta_
     # flag_max_2 = e2 < ene_threshold_max
     flag_min_1 = e1 > ene_threshold_min
     flag_min_2 = e2 > ene_threshold_min
-    flag_sum = (e1 + e2) > 0.18
+    flag_sum = (e1 + e2) > 0.40
     # flag_tmp_1 = (cpnum1 % 196) != (cpnum2 % 196)
 
     flag = flag_max_1 * flag_min_1 * flag_min_2 * flag_sum
@@ -93,7 +93,7 @@ def get_compton_backproj_list_single(sysmat, detector, coor, list_origin, delta_
     return t, t_compton, t_single
 
 
-def get_compton_backproj_list(rank, world_size, sysmat, detector, coor_plane, list_origin_chunk,
+def get_compton_backproj_list_mp(rank, world_size, sysmat, detector, coor_plane, list_origin_chunk,
                             delta_r1, delta_r2, e0, ene_resolution, ene_threshold_max, ene_threshold_min,
                             result_dict, num_workers, start_time, flag_save_t):
     """Worker function for processing list data on specific GPU"""

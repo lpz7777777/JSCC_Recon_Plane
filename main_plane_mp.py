@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from process_list_plane import get_coor_plane, get_compton_backproj_list
+from process_list_plane import get_coor_plane, get_compton_backproj_list_mp
 from recon_mlem_plane import run_recon_mlem
 import time
 import argparse
@@ -35,7 +35,7 @@ def main():
     args = parser.parse_args()
 
     # File paths
-    data_file_path = "ContrastPhantom_70_440keV_5e9"
+    data_file_path = "ContrastPhantom_100_440keV_1e10"
     factor_file_path = "100_100_3_3_440keV"
 
     # System factors
@@ -65,12 +65,13 @@ def main():
     iter_arg.jsccsd = 2000
     iter_arg.save_iter_step = 10
     iter_arg.osem_subset_num = 8
-    iter_arg.t_divide_num = 5
+    iter_arg.t_divide_num = 8
     iter_arg.event_level = 2
+    iter_arg.num_workers = 20  # Sub-chunks per GPU, to avoid overload of GPUs
 
     # Downsampling flags
-    flag_ds = 1
-    ds = 0.1
+    flag_ds = 0
+    ds = 1
     flag_save_t = 0
     flag_save_s = 0
 
@@ -82,6 +83,9 @@ def main():
     print("--------Step1: Checking Devices--------")
     if torch.cuda.is_available():
         print(f"CUDA is available, found {args.num_gpus} GPUs")
+        if args.num_gpus > 1:
+            # if number of GPU > 1, then change t_divide_num to GPU number
+            iter_arg.t_divide_num = args.num_gpus
     else:
         print("CUDA is not available, running on CPU")
         args.num_gpus = 0
@@ -141,14 +145,13 @@ def main():
     with Manager() as manager:
         result_dict = manager.dict()
         processes = []
-        num_workers = 20  # Sub-chunks per GPU
 
         # Start worker processes
         for rank in range(args.num_gpus):
             p = mp.Process(
-                target=get_compton_backproj_list,
-                args=(rank, args.num_gpus, sysmat, detector, coor_plane, chunks[rank], delta_r1, delta_r2, e0,
-                    ene_resolution, ene_threshold_max, ene_threshold_min, result_dict, num_workers, start_time, flag_save_t)
+                target=get_compton_backproj_list_mp,
+                args=(rank, args.num_gpus, sysmat, detector, coor_plane, chunks[rank], delta_r1, delta_r2, e0, ene_resolution,
+                    ene_threshold_max, ene_threshold_min, result_dict, iter_arg.num_workers, start_time, flag_save_t)
             )
             p.start()
             processes.append(p)
@@ -210,8 +213,8 @@ def main():
     os.makedirs(save_path, exist_ok=True)
 
     # Run reconstruction on GPU 0
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    run_recon_mlem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_path, device)
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    run_recon_mlem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_path, args.num_gpus)
 
     print(f"\nTotal time used: {time.time() - start_time:.2f}s")
 
