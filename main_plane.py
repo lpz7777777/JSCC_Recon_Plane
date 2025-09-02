@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from process_list_plane import get_coor_plane, get_compton_backproj_list_mp
-from recon_mlem_plane import run_recon_mlem
+from recon_osem_plane import run_recon_osem
 import time
 import argparse
 import sys
@@ -35,11 +35,11 @@ def main():
     args = parser.parse_args()
 
     # File paths
-    data_file_path = "ContrastPhantom_70_440keV_5e9"
-    factor_file_path = "100_100_3_3_440keV"
+    data_file_path = "ContrastPhantom_70_218keV_1e9"
+    factor_file_path = "100_100_3_3_218keV"
 
     # System factors
-    e0 = 0.440
+    e0 = 0.218
     ene_resolution_662keV = 0.1
     ene_resolution = ene_resolution_662keV * (0.662 / e0) ** 0.5
     ene_threshold_max = 2 * e0 ** 2 / (0.511 + 2 * e0) - 0.001
@@ -60,9 +60,14 @@ def main():
 
     # Reconstruction factors
     iter_arg = argparse.ArgumentParser().parse_args()
-    iter_arg.sc = 200
-    iter_arg.jsccd = 100
-    iter_arg.jsccsd = 200
+    iter_arg.sc = 2000
+    iter_arg.jsccd = 1000
+    iter_arg.jsccsd = 2000
+    iter_arg.admm_inner_single = 1
+    iter_arg.admm_inner_compton = 1
+
+    iter_arg.mode = 0   # 0:osem 1:admm
+
     iter_arg.save_iter_step = 10
     iter_arg.osem_subset_num = 8
     iter_arg.t_divide_num = 8
@@ -214,7 +219,7 @@ def main():
 
     # Run reconstruction on GPU 0
     # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    run_recon_mlem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_path, args.num_gpus)
+    run_recon_osem(sysmat, proj, proj_d, t, iter_arg, s_map_arg, alpha, save_path, args.num_gpus)
 
     print(f"\nTotal time used: {time.time() - start_time:.2f}s")
 

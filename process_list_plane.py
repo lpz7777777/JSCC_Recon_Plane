@@ -30,7 +30,7 @@ def get_compton_backproj_list_single(sysmat, detector, coor, list_origin, delta_
     # flag_max_2 = e2 < ene_threshold_max
     flag_min_1 = e1 > ene_threshold_min
     flag_min_2 = e2 > ene_threshold_min
-    flag_sum = (e1 + e2) > 0.40
+    flag_sum = (e1 + e2) > 0.16
     # flag_tmp_1 = (cpnum1 % 196) != (cpnum2 % 196)
 
     flag = flag_max_1 * flag_min_1 * flag_min_2 * flag_sum
